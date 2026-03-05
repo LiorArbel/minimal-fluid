@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import Stats from 'stats-gl';
 import { Fn, bool, float, globalId, texture, textureLoad, textureStore, uniform, vec2, vec4 } from 'three/tsl';
 import { StorageTexture, WebGPURenderer } from 'three/webgpu';
 
@@ -19,7 +20,14 @@ if (!(canvas instanceof HTMLCanvasElement)) {
 }
 root.appendChild(canvas);
 
-const simScale = 0.5;
+let stats;
+if (/stats=true/.test(window.location.toString())) {
+  stats = new Stats({ trackGPU: true, trackCPT: true, logsPerSecond: 1, graphsPerSecond: 1 });
+  stats.init(renderer);
+  document.body.appendChild(stats.domElement);
+}
+
+const simScale = 1;
 const simW = Math.max(8, Math.floor(window.innerWidth * simScale));
 const simH = Math.max(8, Math.floor(window.innerHeight * simScale));
 const simSize = vec2(simW, simH);
@@ -243,6 +251,7 @@ window.addEventListener('resize', () => {
 });
 
 let lastTime = 0;
+let lastTimestamps = 0;
 renderer.init().then(() => {
   renderer.setAnimationLoop((timeMs) => {
     const dt = Math.min(Math.max((timeMs - lastTime) * 0.001, 1 / 240), 1 / 30);
@@ -260,5 +269,11 @@ renderer.init().then(() => {
     pointer.py = pointer.y;
 
     renderer.render(scene, camera);
+    if (stats && timeMs - lastTimestamps > 1000) {
+      renderer.resolveTimestampsAsync(THREE.TimestampQuery.COMPUTE);
+      renderer.resolveTimestampsAsync(THREE.TimestampQuery.RENDER);
+      lastTimestamps = timeMs;
+    }
+    stats?.update();
   });
 });
