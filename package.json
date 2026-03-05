@@ -1,0 +1,17 @@
+{
+  "scripts": {
+    "cert": "sh ./scripts/gen-cert.sh",
+    "dev": "pnpm run cert && http-server . -S -C ./.cert/localhost-cert.pem -K ./.cert/localhost-key.pem -c-1",
+    "start": "pnpm run dev",
+    "dev:http": "http-server . -c-1"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.180.0",
+    "http-server": "^14.1.1",
+    "stats-gl": "^4.1.0",
+    "typescript": "^5.9.3"
+  }
+}

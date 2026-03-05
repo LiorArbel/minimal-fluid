@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+  <head>
+    <title>JavaScript Sandbox</title>
+    <meta charset="UTF-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: black;
+        color: white;
+      }
+
+      #app {
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="app"></div>
+
+    <script>
+      const isLocalHost =
+        location.hostname === "localhost" || location.hostname === "127.0.0.1";
+
+      const threeBase = isLocalHost
+        ? "../node_modules/three"
+        : "https://cdn.jsdelivr.net/npm/three@0.180.0";
+
+      const importMap = document.createElement("script");
+      importMap.type = "importmap";
+      importMap.textContent = JSON.stringify({
+        imports: {
+          three: `${threeBase}/build/three.module.js`,
+          "three/tsl": `${threeBase}/build/three.tsl.js`,
+          "three/webgpu": `${threeBase}/build/three.webgpu.js`,
+        },
+      });
+      document.currentScript.after(importMap);
+    </script>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
