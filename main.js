@@ -211,7 +211,7 @@ material.colorNode = Fn(() => {
   const v = texture(velocityA).xy;
   const s = texture(smokeA).x;
   const speed = v.length();
-  const maxSpeed = float(0.5).div(uniforms.sdt.max(1e-4));
+  const maxSpeed = float(0.5).div(float(1 / 60).div(substeps));
 
   const r = speed.div(maxSpeed).mul(0.5).oneMinus();
   const g = speed.div(maxSpeed);
