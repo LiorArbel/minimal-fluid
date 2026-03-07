@@ -76,6 +76,7 @@
       importMap.textContent = JSON.stringify({
         imports: {
           three: `${threeBase}/build/three.module.js`,
+          "three/addons/": `${threeBase}/examples/jsm/`,
           "three/tsl": `${threeBase}/build/three.tsl.js`,
           "three/webgpu": `${threeBase}/build/three.webgpu.js`,
           "stats-gl": `${statsBase}/dist/main.js`,

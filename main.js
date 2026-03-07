@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import Stats from 'stats-gl';
 import GUI from 'lil-gui';
+import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import { Fn, bool, float, globalId, texture, textureLoad, textureStore, uniform, vec2, vec4 } from 'three/tsl';
 import { StorageTexture, WebGPURenderer } from 'three/webgpu';
 
@@ -8,11 +9,11 @@ const root = document.getElementById('stage');
 if (!root) {
   throw new Error('Missing #stage');
 }
+if (WebGPU.isAvailable() === false) {
+  document.body.appendChild(WebGPU.getErrorMessage());
+  throw new Error('WebGPU is not available');
+}
 
-if (!('gpu' in navigator)) {
-  root.innerHTML =
-    '<div style="position:fixed;inset:0;display:grid;place-items:center;color:#fff;font-family:monospace;padding:24px;text-align:center">WebGPU is not available in this browser/device.</div>';
-} else {
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -29,7 +30,7 @@ let stats;
 if (/stats=true/.test(window.location.toString())) {
   stats = new Stats({ trackGPU: true, trackCPT: true, logsPerSecond: 1, graphsPerSecond: 1 });
   stats.init(renderer);
-  stats.domElement.id = "stats";
+  stats.domElement.id = 'stats';
   document.body.appendChild(stats.domElement);
 }
 
@@ -46,12 +47,7 @@ const pointer = { x: 0, y: 0, px: 0, py: 0, down: false };
 const forceGain = 2;
 const inkRate = 10;
 const dampingRate = 0.1;
-const params = {
-  pressureLoops: 5,
-  underrelaxation: 0.66,
-  warmstart: 0.995,
-  interactionRadius: Math.min(window.innerWidth, window.innerHeight) * 0.05
-};
+const params = { pressureLoops: 5, underrelaxation: 0.66, warmstart: 0.995, interactionRadius: Math.min(window.innerWidth, window.innerHeight) * 0.05 };
 
 const uniforms = {
   dt: uniform(float(1 / 60)),
@@ -61,7 +57,7 @@ const uniforms = {
   mouseDown: uniform(bool(false)),
   interactionRadius: uniform(float(params.interactionRadius)),
   underrelaxation: uniform(float(params.underrelaxation)),
-  pressureWarmstart: uniform(float(params.warmstart))
+  pressureWarmstart: uniform(float(params.warmstart)),
 };
 
 const gui = new GUI();
@@ -104,116 +100,111 @@ const pressureA = createStorageTexture(THREE.RedFormat);
 const pressureB = createStorageTexture(THREE.RedFormat);
 const divergence = createStorageTexture(THREE.RedFormat);
 
-const advectVelocity = ({ src, dst }) => Fn(() => {
-  const fragCoord = vec2(globalId.xy);
-  const velocity = textureLoad(src, fragCoord).xy;
-  const halfPrevPos = clampCoord(fragCoord.sub(velocity.mul(uniforms.sdt).mul(0.5)));
-  const halfPrevVelocity = texture(src, uvFromPixel(halfPrevPos));
-  const prevPos = clampCoord(fragCoord.sub(halfPrevVelocity.mul(uniforms.sdt)));
-  const velocity_next = texture(src, uvFromPixel(prevPos)).xy;
-  textureStore(dst, fragCoord, vec4(velocity_next, 0, 0));
-})();
+const advectVelocity = ({ src, dst }) =>
+  Fn(() => {
+    const fragCoord = vec2(globalId.xy);
+    const velocity = textureLoad(src, fragCoord).xy;
+    const halfPrevPos = clampCoord(fragCoord.sub(velocity.mul(uniforms.sdt).mul(0.5)));
+    const halfPrevVelocity = texture(src, uvFromPixel(halfPrevPos));
+    const prevPos = clampCoord(fragCoord.sub(halfPrevVelocity.mul(uniforms.sdt)));
+    const velocity_next = texture(src, uvFromPixel(prevPos)).xy;
+    textureStore(dst, fragCoord, vec4(velocity_next, 0, 0));
+  })();
 
-const advectSmoke = ({ velocitySrc, smokeSrc, smokeDst }) => Fn(() => {
-  const fragCoord = vec2(globalId.xy);
-  const velocity = textureLoad(velocitySrc, fragCoord).xy;
-  const prevPos = clampCoord(fragCoord.sub(velocity.mul(uniforms.sdt)));
+const advectSmoke = ({ velocitySrc, smokeSrc, smokeDst }) =>
+  Fn(() => {
+    const fragCoord = vec2(globalId.xy);
+    const velocity = textureLoad(velocitySrc, fragCoord).xy;
+    const prevPos = clampCoord(fragCoord.sub(velocity.mul(uniforms.sdt)));
 
-  const smoke_advected = texture(smokeSrc, uvFromPixel(prevPos)).x;
-  const mouseSim = vec2(
-    uniforms.mouse.x.mul(uniforms.mouseToSim.x),
-    uniforms.mouse.y.mul(uniforms.mouseToSim.y)
-  );
-  const mouseRadiusSim = uniforms.interactionRadius.mul(uniforms.mouseToSim.x);
-  const mouseDist = fragCoord.distance(vec2(mouseSim.x, float(simH).sub(mouseSim.y)));
-  const falloff = mouseDist.div(mouseRadiusSim).oneMinus().max(0).pow(2);
-  const smoke_add = uniforms.mouseDown.select(uniforms.sdt.mul(inkRate).mul(falloff), 0);
-  const damping = uniforms.sdt.mul(dampingRate).oneMinus().max(0);
+    const smoke_advected = texture(smokeSrc, uvFromPixel(prevPos)).x;
+    const mouseSim = vec2(uniforms.mouse.x.mul(uniforms.mouseToSim.x), uniforms.mouse.y.mul(uniforms.mouseToSim.y));
+    const mouseRadiusSim = uniforms.interactionRadius.mul(uniforms.mouseToSim.x);
+    const mouseDist = fragCoord.distance(vec2(mouseSim.x, float(simH).sub(mouseSim.y)));
+    const falloff = mouseDist.div(mouseRadiusSim).oneMinus().max(0).pow(2);
+    const smoke_add = uniforms.mouseDown.select(uniforms.sdt.mul(inkRate).mul(falloff), 0);
+    const damping = uniforms.sdt.mul(dampingRate).oneMinus().max(0);
 
-  const smoke_next = smoke_advected.add(smoke_add).mul(damping);
-  textureStore(smokeDst, fragCoord, vec4(smoke_next, 0, 0, 0));
-})();
+    const smoke_next = smoke_advected.add(smoke_add).mul(damping);
+    textureStore(smokeDst, fragCoord, vec4(smoke_next, 0, 0, 0));
+  })();
 
-const storeDivergence = ({ velocitySrc, divergenceDst }) => Fn(() => {
-  const fragCoord = vec2(globalId.xy);
-  const p_top = clampCoord(fragCoord.add(vec2(0, 1)));
-  const p_bottom = clampCoord(fragCoord.add(vec2(0, -1)));
-  const p_left = clampCoord(fragCoord.add(vec2(-1, 0)));
-  const p_right = clampCoord(fragCoord.add(vec2(1, 0)));
+const storeDivergence = ({ velocitySrc, divergenceDst }) =>
+  Fn(() => {
+    const fragCoord = vec2(globalId.xy);
+    const p_top = clampCoord(fragCoord.add(vec2(0, 1)));
+    const p_bottom = clampCoord(fragCoord.add(vec2(0, -1)));
+    const p_left = clampCoord(fragCoord.add(vec2(-1, 0)));
+    const p_right = clampCoord(fragCoord.add(vec2(1, 0)));
 
-  const v_top = textureLoad(velocitySrc, p_top).y;
-  const v_bottom = textureLoad(velocitySrc, p_bottom).y;
-  const v_left = textureLoad(velocitySrc, p_left).x;
-  const v_right = textureLoad(velocitySrc, p_right).x;
-  const v_div = v_right.sub(v_left).add(v_top.sub(v_bottom)).mul(0.5);
+    const v_top = textureLoad(velocitySrc, p_top).y;
+    const v_bottom = textureLoad(velocitySrc, p_bottom).y;
+    const v_left = textureLoad(velocitySrc, p_left).x;
+    const v_right = textureLoad(velocitySrc, p_right).x;
+    const v_div = v_right.sub(v_left).add(v_top.sub(v_bottom)).mul(0.5);
 
-  textureStore(divergenceDst, fragCoord, vec4(v_div, 0, 0, 0));
-})();
+    textureStore(divergenceDst, fragCoord, vec4(v_div, 0, 0, 0));
+  })();
 
-const jacobiPressure = ({ pressureSrc, pressureDst, divergenceSrc }) => Fn(() => {
-  const fragCoord = vec2(globalId.xy);
-  const p_center = textureLoad(pressureSrc, fragCoord).x;
+const jacobiPressure = ({ pressureSrc, pressureDst, divergenceSrc }) =>
+  Fn(() => {
+    const fragCoord = vec2(globalId.xy);
+    const p_center = textureLoad(pressureSrc, fragCoord).x;
 
-  const p_top = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(0, 1)))).x;
-  const p_bottom = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(0, -1)))).x;
-  const p_left = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(-1, 0)))).x;
-  const p_right = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(1, 0)))).x;
+    const p_top = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(0, 1)))).x;
+    const p_bottom = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(0, -1)))).x;
+    const p_left = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(-1, 0)))).x;
+    const p_right = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(1, 0)))).x;
 
-  const v_div = textureLoad(divergenceSrc, fragCoord).x;
-  const p_jacobi = p_top.add(p_bottom).add(p_left).add(p_right).sub(v_div).mul(0.25);
-  const p_next = p_center.mul(float(1).sub(uniforms.underrelaxation)).add(p_jacobi.mul(uniforms.underrelaxation));
+    const v_div = textureLoad(divergenceSrc, fragCoord).x;
+    const p_jacobi = p_top.add(p_bottom).add(p_left).add(p_right).sub(v_div).mul(0.25);
+    const p_next = p_center.mul(float(1).sub(uniforms.underrelaxation)).add(p_jacobi.mul(uniforms.underrelaxation));
 
-  textureStore(pressureDst, fragCoord, vec4(p_next, 0, 0, 0));
-})();
+    textureStore(pressureDst, fragCoord, vec4(p_next, 0, 0, 0));
+  })();
 
-const projectAndForce = ({ velocitySrc, pressureSrc, pressureDst, velocityDst }) => Fn(() => {
-  const fragCoord = vec2(globalId.xy);
-  const velocity = textureLoad(velocitySrc, fragCoord).xy;
+const projectAndForce = ({ velocitySrc, pressureSrc, pressureDst, velocityDst }) =>
+  Fn(() => {
+    const fragCoord = vec2(globalId.xy);
+    const velocity = textureLoad(velocitySrc, fragCoord).xy;
 
-  const p = textureLoad(pressureSrc, fragCoord).x;
-  const p_top = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(0, 1)))).x;
-  const p_bottom = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(0, -1)))).x;
-  const p_left = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(-1, 0)))).x;
-  const p_right = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(1, 0)))).x;
-  const p_grad = vec2(p_right.sub(p_left), p_top.sub(p_bottom)).mul(0.5);
+    const p = textureLoad(pressureSrc, fragCoord).x;
+    const p_top = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(0, 1)))).x;
+    const p_bottom = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(0, -1)))).x;
+    const p_left = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(-1, 0)))).x;
+    const p_right = textureLoad(pressureSrc, clampCoord(fragCoord.add(vec2(1, 0)))).x;
+    const p_grad = vec2(p_right.sub(p_left), p_top.sub(p_bottom)).mul(0.5);
 
-  const v_projected = velocity.sub(p_grad);
+    const v_projected = velocity.sub(p_grad);
 
-  const mouseDelta = uniforms.mouse.xy.sub(uniforms.mouse.zw).mul(uniforms.mouseToSim);
-  const mouseVel = mouseDelta.mul(forceGain).mul(vec2(1, -1)).div(uniforms.sdt.max(1e-4));
-  const mouseSim = vec2(
-    uniforms.mouse.x.mul(uniforms.mouseToSim.x),
-    uniforms.mouse.y.mul(uniforms.mouseToSim.y)
-  );
-  const mouseRadiusSim = uniforms.interactionRadius.mul(uniforms.mouseToSim.x);
-  const mouseDist = fragCoord.distance(vec2(mouseSim.x, float(simH).sub(mouseSim.y)));
-  const falloff = mouseDist.div(mouseRadiusSim).oneMinus().max(0).pow(2);
-  const mouseForce = uniforms.mouseDown.select(mouseVel.mul(falloff), 0).mul(uniforms.sdt);
-  const damping = uniforms.sdt.mul(dampingRate).oneMinus().max(0);
+    const mouseDelta = uniforms.mouse.xy.sub(uniforms.mouse.zw).mul(uniforms.mouseToSim);
+    const mouseVel = mouseDelta.mul(forceGain).mul(vec2(1, -1)).div(uniforms.sdt.max(1e-4));
+    const mouseSim = vec2(uniforms.mouse.x.mul(uniforms.mouseToSim.x), uniforms.mouse.y.mul(uniforms.mouseToSim.y));
+    const mouseRadiusSim = uniforms.interactionRadius.mul(uniforms.mouseToSim.x);
+    const mouseDist = fragCoord.distance(vec2(mouseSim.x, float(simH).sub(mouseSim.y)));
+    const falloff = mouseDist.div(mouseRadiusSim).oneMinus().max(0).pow(2);
+    const mouseForce = uniforms.mouseDown.select(mouseVel.mul(falloff), 0).mul(uniforms.sdt);
+    const damping = uniforms.sdt.mul(dampingRate).oneMinus().max(0);
 
-  const v_next = v_projected.mul(damping).add(mouseForce);
-  textureStore(velocityDst, fragCoord, vec4(v_next, 0, 0));
+    const v_next = v_projected.mul(damping).add(mouseForce);
+    textureStore(velocityDst, fragCoord, vec4(v_next, 0, 0));
 
-  const warmStartP = p.mul(uniforms.pressureWarmstart);
-  textureStore(pressureDst, fragCoord, vec4(warmStartP, 0, 0, 0));
-})();
+    const warmStartP = p.mul(uniforms.pressureWarmstart);
+    textureStore(pressureDst, fragCoord, vec4(warmStartP, 0, 0, 0));
+  })();
 
-const copyTexture = ({ src, dst }) => Fn(() => {
-  const p = vec2(globalId.xy);
-  textureStore(dst, p, textureLoad(src, p));
-})();
+const copyTexture = ({ src, dst }) =>
+  Fn(() => {
+    const p = vec2(globalId.xy);
+    textureStore(dst, p, textureLoad(src, p));
+  })();
 
 const advectVelocityCompute = advectVelocity({ src: velocityA, dst: velocityB }).computeKernel(WG);
 const advectSmokeCompute = advectSmoke({ velocitySrc: velocityB, smokeSrc: smokeA, smokeDst: smokeB }).computeKernel(WG);
 const divergenceCompute = storeDivergence({ velocitySrc: velocityB, divergenceDst: divergence }).computeKernel(WG);
 const pressureABCompute = jacobiPressure({ pressureSrc: pressureA, pressureDst: pressureB, divergenceSrc: divergence }).computeKernel(WG);
 const pressureBACompute = jacobiPressure({ pressureSrc: pressureB, pressureDst: pressureA, divergenceSrc: divergence }).computeKernel(WG);
-const projectForceCompute = projectAndForce({
-  velocitySrc: velocityB,
-  pressureSrc: pressureA,
-  pressureDst: pressureB,
-  velocityDst: velocityA
-}).computeKernel(WG);
+const projectForceCompute = projectAndForce({ velocitySrc: velocityB, pressureSrc: pressureA, pressureDst: pressureB, velocityDst: velocityA }).computeKernel(WG);
 
 const copySmokeBToA = copyTexture({ src: smokeB, dst: smokeA }).computeKernel(WG);
 const copyPressureBToA = copyTexture({ src: pressureB, dst: pressureA }).computeKernel(WG);
@@ -226,7 +217,7 @@ function buildFramePass(loops) {
     ...[...Array(loops)].flatMap(() => [pressureABCompute, pressureBACompute]),
     projectForceCompute,
     copySmokeBToA,
-    copyPressureBToA
+    copyPressureBToA,
   ];
   return [...Array(substeps)].flatMap(() => substepPass);
 }
@@ -319,4 +310,3 @@ renderer.init().then(() => {
     stats?.update();
   });
 });
-}
