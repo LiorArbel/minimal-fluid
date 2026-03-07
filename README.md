@@ -13,4 +13,4 @@
 - Simulation resolution is fixed at startup; refresh after major window resize/orientation changes. Resize handling wasn't added to keep the code minimal.
 - Optional stats: add `?stats=true` to the url.
 
-![Example](runtimeExample.png)
+[![Example](runtimeExample.png)](https://liorarbel.github.io/minimal-fluid/)
