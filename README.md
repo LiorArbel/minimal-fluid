@@ -11,4 +11,4 @@
 - Solves pressure with Jacobi iterations, then projects velocity and applies pointer force.
 - Warm starts pressure between substeps to converge faster with fewer iterations. This is critical when using such low pressure steps.
 - Simulation resolution is fixed at startup; refresh after major window resize/orientation changes. Resize handling wasn't added to keep the code minimal.
-- Optional stats: open with `?stats=true`.
+- Optional stats: add `?stats=true` to the url.
