@@ -17,16 +17,45 @@
         color: white;
       }
 
-      #app {
+      #stage {
         width: 100%;
         height: 100%;
         touch-action: none;
+      }
+
+      #info {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        padding: 10px 12px;
+        font-family: monospace;
+        font-size: 12px;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.35);
+        pointer-events: none;
+      }
+
+      #info a {
+        pointer-events: auto;
+        color: #8fd3ff;
+        text-decoration: underline;
+      }
+
+      #stats {
+        bottom: 0 !important;
+        top: auto;
+
+        >* {
+          bottom: 0 !important;
+          top: auto !important;
+        }
       }
     </style>
   </head>
 
   <body>
-    <div id="app"></div>
+    <div id="stage"></div>
+    <div id="info">Minimal TSL fluid - drag to inject smoke. <a href="https://github.com/LiorArbel/minimal-fluid">Source code</a><br>2026 Lior Arbel</div>
 
     <script>
       const isLocalHost =
