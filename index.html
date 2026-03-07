@@ -38,6 +38,9 @@
       const statsBase = isLocalHost
         ? "../node_modules/stats-gl"
         : "https://cdn.jsdelivr.net/npm/stats-gl@4.1.0";
+      const guiBase = isLocalHost
+        ? "../node_modules/lil-gui"
+        : "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0";
 
       const importMap = document.createElement("script");
       importMap.type = "importmap";
@@ -47,6 +50,7 @@
           "three/tsl": `${threeBase}/build/three.tsl.js`,
           "three/webgpu": `${threeBase}/build/three.webgpu.js`,
           "stats-gl": `${statsBase}/dist/main.js`,
+          "lil-gui": `${guiBase}/dist/lil-gui.esm.js`,
         },
       });
       document.currentScript.after(importMap);

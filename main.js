@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import Stats from 'stats-gl';
+import GUI from 'lil-gui';
 import { Fn, bool, float, globalId, texture, textureLoad, textureStore, uniform, vec2, vec4 } from 'three/tsl';
 import { StorageTexture, WebGPURenderer } from 'three/webgpu';
 
@@ -32,12 +33,17 @@ const simW = Math.max(8, Math.floor(window.innerWidth * simScale));
 const simH = Math.max(8, Math.floor(window.innerHeight * simScale));
 const simSize = vec2(simW, simH);
 const substeps = 5;
-const pressureLoops = 5;
 
 const WG = [8, 8, 1];
 const dispatchCount = [Math.ceil(simW / 8), Math.ceil(simH / 8)];
 
 const pointer = { x: 0, y: 0, px: 0, py: 0, down: false };
+const params = {
+  pressureLoops: 5,
+  underrelaxation: 0.66,
+  warmstart: 0.995,
+  mouseRadius: Math.min(window.innerWidth, window.innerHeight) * 0.05
+};
 
 const uniforms = {
   dt: uniform(float(1 / 60)),
@@ -45,10 +51,25 @@ const uniforms = {
   mouse: uniform(vec4(0, 0, 0, 0)),
   mouseToSim: uniform(vec2(simW / window.innerWidth, simH / window.innerHeight)),
   mouseDown: uniform(bool(false)),
-  mouseRadius: uniform(float(Math.min(window.innerWidth, window.innerHeight) * 0.05)),
-  omega: uniform(float(0.66)),
-  pressureWarmstart: uniform(float(0.995))
+  mouseRadius: uniform(float(params.mouseRadius)),
+  underrelaxation: uniform(float(params.underrelaxation)),
+  pressureWarmstart: uniform(float(params.warmstart))
 };
+
+const gui = new GUI();
+gui.close();
+gui.domElement.style.top = 'auto';
+gui.domElement.style.bottom = '0';
+gui.domElement.style.right = '0';
+gui.add(params, 'underrelaxation', 0, 1, 0.001).onChange((value) => {
+  uniforms.underrelaxation.value = value;
+});
+gui.add(params, 'warmstart', 0, 1, 0.0001).onChange((value) => {
+  uniforms.pressureWarmstart.value = value;
+});
+gui.add(params, 'mouseRadius', 1, Math.min(window.innerWidth, window.innerHeight) * 0.5, 1).onChange((value) => {
+  uniforms.mouseRadius.value = value;
+});
 
 function createStorageTexture(format) {
   const tex = new StorageTexture(simW, simH);
@@ -137,7 +158,7 @@ const jacobiPressure = ({ pressureSrc, pressureDst, divergenceSrc }) => Fn(() =>
 
   const v_div = textureLoad(divergenceSrc, fragCoord).x;
   const p_jacobi = p_top.add(p_bottom).add(p_left).add(p_right).sub(v_div).mul(0.25);
-  const p_next = p_center.mul(float(1).sub(uniforms.omega)).add(p_jacobi.mul(uniforms.omega));
+  const p_next = p_center.mul(float(1).sub(uniforms.underrelaxation)).add(p_jacobi.mul(uniforms.underrelaxation));
 
   textureStore(pressureDst, fragCoord, vec4(p_next, 0, 0, 0));
 })();
@@ -194,17 +215,24 @@ const projectForceCompute = projectAndForce({
 const copySmokeBToA = copyTexture({ src: smokeB, dst: smokeA }).computeKernel(WG);
 const copyPressureBToA = copyTexture({ src: pressureB, dst: pressureA }).computeKernel(WG);
 
-const pressurePass = [...Array(pressureLoops)].flatMap(() => [pressureABCompute, pressureBACompute]);
-const substepPass = [
-  advectVelocityCompute,
-  advectSmokeCompute,
-  divergenceCompute,
-  ...pressurePass,
-  projectForceCompute,
-  copySmokeBToA,
-  copyPressureBToA
-];
-const framePass = [...Array(substeps)].flatMap(() => substepPass);
+function buildFramePass(loops) {
+  const substepPass = [
+    advectVelocityCompute,
+    advectSmokeCompute,
+    divergenceCompute,
+    ...[...Array(loops)].flatMap(() => [pressureABCompute, pressureBACompute]),
+    projectForceCompute,
+    copySmokeBToA,
+    copyPressureBToA
+  ];
+  return [...Array(substeps)].flatMap(() => substepPass);
+}
+
+let framePass = buildFramePass(params.pressureLoops);
+gui.add(params, 'pressureLoops', 0, 100, 1).onFinishChange((value) => {
+  params.pressureLoops = value;
+  framePass = buildFramePass(params.pressureLoops);
+});
 
 const material = new THREE.MeshBasicMaterial({ transparent: true });
 material.colorNode = Fn(() => {
